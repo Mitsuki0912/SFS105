@@ -1,0 +1,589 @@
+提供されたHTMLとJavaScriptのコードを確認したところ、**文字が表示されない（または表示が崩れてエラーになる）原因が2つ**あります。
+
+---
+
+### 原因の特定
+
+1. **HTMLタグやモーダルのHTMLが途中で重複・欠損している**
+コードの途中で、同じHTMLが2回連続で貼り付けられている部分や、モーダルウィンドウの閉じタグ（`</div>`など）や確認・キャンセルボタンの部分が途切れている箇所があります（例：`キャンセル\n追加` や `🎉 ランクアップ！ 🎉` の周辺）。このためHTML構造が壊れ、画面が正しく描画されなくなっています。
+2. **JavaScriptの文字列内のテンプレートリテラル（バッククォート ```）が抜けている**
+JavaScriptコード内の以下の部分で、バッククォートが抜けていたり、クォーテーションの使い方に誤りがある箇所があります。
+* **例1:** テンプレートリテラルでバッククォートが抜けている箇所
+```javascript
+// 修正前
+document.getElementById(page-${pId}).classList.add('active');
+
+// 修正後（バッククォートが必要）
+document.getElementById(`page-${pId}`).classList.add('active');
+
+```
+
+
+* **例2:** トースト通知やカウンタテキストの部分
+```javascript
+// 修正前
+showToast(${item}${ecoLogs[item]}回目🎉);
+counter.textContent = 合計回数: ${total}回;
+
+// 修正後（バッククォートで囲む）
+showToast(`${item} ${ecoLogs[item]}回目🎉`);
+counter.textContent = `合計回数: ${total}回`;
+
+```
+
+
+
+
+3. **Chart.jsのCDNのURLが間違っている**
+HTMLの頭にある `<script src="[https://jsdelivr.net](https://jsdelivr.net)"></script>` では、Chart.js本体が読み込まれません。正しく動かすためには、CDNの正しいURLを指定する必要があります。
+
+---
+
+### 修正済みの完全なコード
+
+上記の問題をすべて修正し、そのままコピー＆ペーストしてブラウザで動かせるようにしたコードです。
+
+```html
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>エコ行動記録アプリ</title>
+    <!-- Chart.js の正しいCDNを指定 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --p: #2e7d32; --l: #e8f5e9; --d: #1b5e20; --a: #81c784; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: #f1f8e9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 10px; }
+        .app-container { width: 100%; max-width: 480px; height: 90vh; background: #fff; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; position: relative; border: 3px solid var(--p); }
+        .content-area { flex: 1; overflow-y: auto; padding: 20px; padding-bottom: 90px; }
+        .page { display: none; animation: f 0.3s; }
+        .page.active { display: block; }
+        @keyframes f { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        h2 { color: var(--d); margin-bottom: 20px; text-align: center; }
+        .nav-bar { position: absolute; bottom: 0; width: 100%; height: 70px; background: #fff; border-top: 2px solid var(--l); display: flex; z-index: 10; }
+        .nav-btn { flex: 1; border: none; background: none; color: #888; font-size: 0.8rem; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+        .nav-btn.active { color: var(--p); background: var(--l); }
+        .nav-icon { width: 24px; height: 24px; position: relative; }
+        .icon-select::before { content: ''; position: absolute; width: 14px; height: 14px; border: 3px solid currentColor; border-radius: 4px; top: 3px; left: 5px; }
+        .icon-chart::before { content: ''; position: absolute; width: 16px; height: 16px; border: 3px solid currentColor; border-radius: 50%; left: 4px; top: 4px; }
+        .icon-status::before { content: ''; position: absolute; width: 12px; height: 12px; border: 3px solid currentColor; border-radius: 50%; top: 2px; left: 6px; }
+        .icon-status::after { content: ''; position: absolute; width: 18px; height: 6px; border: 3px solid currentColor; border-top: none; border-radius: 0 0 10px 10px; bottom: 2px; left: 3px; }
+        .eco-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .eco-btn { background: var(--l); border: 2px solid var(--a); border-radius: 16px; padding: 16px; font-size: 1rem; font-weight: bold; color: var(--d); cursor: pointer; text-align: center; }
+        .eco-btn:active { transform: scale(0.95); background: var(--a); color: #fff; }
+        .eco-btn.btn-add { background: #fff3e0; border-color: #ffb74d; color: #e65100; }
+        .toast { position: absolute; top: 20px; left: 50%; transform: translateX(-50%) translateY(-50px); background: var(--p); color: #fff; padding: 12px 24px; border-radius: 50px; font-weight: bold; opacity: 0; transition: 0.3s; z-index: 200; pointer-events: none; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; padding: 20px; border-radius: 24px; }
+        .modal-content { background: #fff; padding: 24px; border-radius: 20px; width: 100%; max-width: 320px; text-align: center; border: 3px solid var(--p); animation: pop 0.3s; }
+        @keyframes pop { from { transform: scale(0.8); } to { transform: scale(1); } }
+        .modal input { width: 100%; padding: 10px; margin-bottom: 15px; border: 2px solid var(--a); border-radius: 10px; font-size: 1rem; }
+        .modal-btns { display: flex; gap: 10px; }
+        .modal-btns button { flex: 1; padding: 10px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-confirm { background: var(--p); color: #fff; }
+        .btn-cancel { background: #e0e0e0; color: #333; }
+        .chart-container { position: relative; margin: auto; height: 280px; width: 280px; }
+        .status-card { background: linear-gradient(135deg, #fff, var(--l)); border-radius: 20px; padding: 24px; text-align: center; border: 2px solid var(--a); position: relative; overflow: hidden; }
+        .rank-title { font-size: 1.8rem; font-weight: bold; color: var(--d); margin-bottom: 5px; }
+        .counter-text { font-size: 1.2rem; color: #555; margin-bottom: 25px; }
+        .illustration-box { width: 140px; height: 140px; margin: 0 auto 30px; position: relative; z-index: 2; }
+        .art-certificate { width: 100px; height: 130px; background: #fffde7; margin: auto; border: 6px double #fbc02d; border-radius: 8px; position: relative; }
+        .art-certificate::before { content: '賞状'; position: absolute; top: 15px; left: 0; width: 100%; text-align: center; font-size: 14px; font-weight: bold; color: #f57f17; }
+        .art-certificate::after { content: ''; position: absolute; bottom: 20px; left: 15px; width: 60px; height: 40px; border-top: 3px dashed #f57f17; border-bottom: 3px dashed #f57f17; }
+        .art-medal { width: 80px; height: 80px; background: #eceff1; border-radius: 50%; margin: 30px auto 0; border: 8px solid #b0bec5; position: relative; }
+        .art-medal::before { content: ''; position: absolute; top: -38px; left: 16px; width: 32px; height: 40px; background: linear-gradient(90deg, #e53935 50%, #1e88e5 50%); border-radius: 4px; z-index: -1; }
+        .art-medal::after { content: '1st'; position: absolute; width: 100%; text-align: center; top: 16px; left: 0; font-size: 20px; font-weight: bold; color: #78909c; }
+        .art-trophy { width: 70px; height: 70px; background: #ffd54f; margin: 20px auto 0; border-radius: 0 0 35px 35px; border: 4px solid #ffb300; position: relative; }
+        .art-trophy::before { content: ''; position: absolute; width: 16px; height: 30px; background: #ffb300; top: 66px; left: 23px; }
+        .art-trophy::after { content: ''; position: absolute; width: 50px; height: 16px; background: #cfd8dc; top: 92px; left: 6px; border-radius: 4px; }
+        .t-handle-l, .t-handle-r { position: absolute; width: 20px; height: 40px; border: 5px solid #ffd54f; border-radius: 50%; top: 5px; }
+        .t-handle-l { left: -16px; } .t-handle-r { right: -16px; }
+        .bg-applause { position: absolute; bottom: 0; left: 0; width: 100%; height: 80px; display: flex; justify-content: space-around; pointer-events: none; z-index: 1; opacity: 0.25; }
+        .stick-man { width: 40px; height: 70px; position: relative; }
+        .stick-man::before { content: ''; position: absolute; width: 14px; height: 14px; background: #333; border-radius: 50%; top: 5px; left: 13px; }
+        .sm-body { position: absolute; width: 3px; height: 25px; background: #333; top: 19px; left: 18px; }
+        .sm-body::before { content: ''; position: absolute; width: 10px; height: 20px; border-left: 3px solid #333; transform: rotate(15deg); top: 24px; left: -4px; }
+        .sm-body::after { content: ''; position: absolute; width: 10px; height: 20px; border-right: 3px solid #333; transform: rotate(-15deg); top: 24px; left: 3px; }
+        .sm-arm-l, .sm-arm-r { position: absolute; width: 15px; height: 3px; background: #333; top: 22px; transform-origin: 0% 50%; animation: clap 0.2s infinite alternate; }
+        .sm-arm-l { left: 20px; transform: rotate(-40deg); } .sm-arm-r { right: 20px; transform: rotate(-140deg); }
+        @keyframes clap { 0% { transform: rotate(-30deg); } 100% { transform: rotate(-70deg); } }
+        .rank-beginner .art-medal, .rank-beginner .art-trophy { display: none; }
+        .rank-rookie .art-certificate, .rank-rookie .art-trophy { display: none; }
+        .rank-expert .art-certificate, .rank-expert .art-medal { display: none; }
+    </style>
+</head>
+<body>
+<div id="toast" class="toast"></div>
+<div class="app-container">
+    <div class="content-area">
+        <div id="page-select" class="page active">
+            <h2>エコ行動を記録</h2>
+            <div id="eco-grid" class="eco-grid"></div>
+        </div>
+        <div id="page-chart" class="page">
+            <h2>みんなの記録グラフ</h2>
+            <div class="chart-container"><canvas id="ecoChart"></canvas></div>
+        </div>
+        <div id="page-status" class="page">
+            <h2>現在のランク</h2>
+            <div id="status-card" class="status-card rank-beginner">
+                <div id="rank-title" class="rank-title">エコ見習い 🌱</div>
+                <div id="counter-text" class="counter-text">合計回数: 0回</div>
+                <div class="illustration-box">
+                    <div class="art-certificate"></div>
+                    <div class="art-medal"></div>
+                    <div class="art-trophy"><div class="t-handle-l"></div><div class="t-handle-r"></div></div>
+                </div>
+                <div class="bg-applause">
+                    <div class="stick-man"><div class="sm-body"></div><div class="sm-arm-l"></div><div class="sm-arm-r"></div></div>
+                    <div class="stick-man"><div class="sm-body"></div><div class="sm-arm-l"></div><div class="sm-arm-r"></div></div>
+                    <div class="stick-man"><div class="sm-body"></div><div class="sm-arm-l"></div><div class="sm-arm-r"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <nav class="nav-bar">
+        <button class="nav-btn active" onclick="switchPage('select')"><div class="nav-icon icon-select"></div>選択ページ</button>
+        <button class="nav-btn" onclick="switchPage('chart')"><div class="nav-icon icon-chart"></div>グラフページ</button>
+        <button class="nav-btn" onclick="switchPage('status')"><div class="nav-icon icon-status"></div>自分の状態</button>
+    </nav>
+</div>
+
+<!-- モーダル定義 -->
+<div id="add-modal" class="modal">
+    <div class="modal-content">
+        <h3>新しいエコ行動を追加</h3>
+        <input type="text" id="new-eco-input" placeholder="例: ゴミ拾い" maxlength="15">
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeAddModal()">キャンセル</button>
+            <button class="btn-confirm" onclick="confirmAddEco()">追加</button>
+        </div>
+    </div>
+</div>
+
+<div id="celebrate-modal" class="modal">
+    <div class="modal-content">
+        <h3 id="celebrate-msg">🎉 ランクアップ！ 🎉</h3>
+        <div class="modal-btns">
+            <button class="btn-confirm" onclick="closeCelebrateModal()">ありがとう！</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let ecoItems = ["マイ箸", "マイボトル", "徒歩", "自転車", "エコマーク", "フリーマーケット", "譲りもの", "リサイクル", "水まき"];
+let ecoLogs = JSON.parse(localStorage.getItem('ecoLogs')) || {};
+let customItems = JSON.parse(localStorage.getItem('customItems')) || [];
+ecoItems = [...ecoItems, ...customItems];
+ecoItems.forEach(item => { if(ecoLogs[item] === undefined) ecoLogs[item] = 0; });
+let chartInstance = null;
+
+document.addEventListener("DOMContentLoaded", () => { 
+    renderEcoButtons(); 
+    updateStatusPage(); 
+    initChart(); 
+});
+
+function switchPage(pId) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`page-${pId}`).classList.add('active');
+    const idx = pId === 'select' ? 0 : pId === 'chart' ? 1 : 2;
+    document.querySelectorAll('.nav-btn')[idx].classList.add('active');
+    if(pId === 'chart') updateChart();
+}
+
+function renderEcoButtons() {
+    const grid = document.getElementById("eco-grid"); 
+    if(!grid) return; 
+    grid.innerHTML = "";
+    ecoItems.forEach(item => {
+        const btn = document.createElement("button"); 
+        btn.className = "eco-btn"; 
+        btn.textContent = item;
+        btn.onclick = () => logEcoAction(item); 
+        grid.appendChild(btn);
+    });
+    const addBtn = document.createElement("button"); 
+    addBtn.className = "eco-btn btn-add"; 
+    addBtn.textContent = "＋ 追加";
+    addBtn.onclick = openAddModal; 
+    grid.appendChild(addBtn);
+}
+
+function logEcoAction(item) {
+    ecoLogs[item] = (ecoLogs[item] || 0) + 1; 
+    localStorage.setItem('ecoLogs', JSON.stringify(ecoLogs));
+    showToast(`${item} ${ecoLogs[item]}回目🎉`);
+    const total = Object.values(ecoLogs).reduce((a, b) => a + b, 0);
+    if (total === 50) triggerCelebration("50回目おめでとう！\n【ビギナー📜】になりました！");
+    if (total === 100) triggerCelebration("100回目おめでとう！\n【ルーキー🏅】になりました！");
+    if (total === 150) triggerCelebration("150回目おめでとう！\n【エキスパート🏆】になりました！");
+    updateStatusPage();
+}
+
+function showToast(msg) {
+    const t = document.getElementById("toast"); 
+    if(!t) return;
+    t.textContent = msg; 
+    t.classList.add("show"); 
+    setTimeout(() => t.classList.remove("show"), 2000);
+}
+
+function triggerCelebration(msg) {
+    const m = document.getElementById("celebrate-modal"), t = document.getElementById("celebrate-msg");
+    if(m && t) { t.innerText = msg; m.style.display = "flex"; }
+}
+
+function closeCelebrateModal() { 
+    document.getElementById("celebrate-modal").style.display = "none"; 
+}
+
+function openAddModal() { 
+    document.getElementById("add-modal").style.display = "flex"; 
+}
+
+function closeAddModal() { 
+    document.getElementById("add-modal").style.display = "none"; 
+    document.getElementById("new-eco-input").value = ""; 
+}
+
+function confirmAddEco() {
+    const input = document.getElementById("new-eco-input"); 
+    if(!input) return;
+    const val = input.value.trim(); 
+    if(!val) return;
+    if(ecoItems.includes(val)) { alert("その項目はすでにあります。"); return; }
+    ecoItems.push(val); 
+    customItems.push(val); 
+    ecoLogs[val] = 0;
+    localStorage.setItem('customItems', JSON.stringify(customItems)); 
+    localStorage.setItem('ecoLogs', JSON.stringify(ecoLogs));
+    renderEcoButtons(); 
+    closeAddModal(); 
+    showToast(`「${val}」を追加しました！`);
+}
+
+function updateStatusPage() {
+    const total = Object.values(ecoLogs).reduce((a, b) => a + b, 0);
+    const card = document.getElementById("status-card"), title = document.getElementById("rank-title"), counter = document.getElementById("counter-text");
+    if(!card || !title || !counter) return;
+    counter.textContent = `合計回数: ${total}回`; 
+    card.className = "status-card";
+    if (total >= 150) { card.classList.add("rank-expert"); title.innerHTML = "エキスパート 🏆"; }
+    else if (total >= 100) { card.classList.add("rank-rookie"); title.innerHTML = "ルーキー 🏅"; }
+    else if (total >= 50) { card.classList.add("rank-beginner"); title.innerHTML = "ビギナー 📜"; }
+    else { card.classList.add("rank-beginner"); title.innerHTML = "エコ見習い 🌱"; }
+}
+
+function initChart() {
+    const canvas = document.getElementById('ecoChart'); 
+    if(!canvas) return;
+    chartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: ecoItems,
+            datasets: [{
+                data: ecoItems.map(item => ecoLogs[item] || 0),
+                backgroundColor: ['#2e7d32', '#4caf50', '#81c784', '#a5d6a7', '#c8e6c9', '#1b5e20', '#388e3c', '#66bb6a', '#43a047', '#7cb342', '#ffb74d', '#ffa726', '#ff9800'],
+                borderWidth: 2, 
+                borderColor: '#ffffff'
+            }]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            plugins: { 
+                legend: { 
+                    position: 'bottom', 
+                    labels: { boxWidth: 12, font: { size: 11 } } 
+                } 
+            } 
+        }
+    });
+}
+
+function updateChart() { 
+    if(chartInstance) { 
+        chartInstance.data.labels = ecoItems; 
+        chartInstance.data.datasets[0].data = ecoItems.map(item => ecoLogs[item] || 0); 
+        chartInstance.update(); 
+    } 
+}
+</script>
+</body>
+</html>
+
+```<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>エコ行動記録アプリ</title>
+    <!-- Chart.js の正しいCDNを指定 -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root { --p: #2e7d32; --l: #e8f5e9; --d: #1b5e20; --a: #81c784; }
+        * { box-sizing: border-box; margin: 0; padding: 0; font-family: sans-serif; }
+        body { background: #f1f8e9; display: flex; justify-content: center; align-items: center; min-height: 100vh; padding: 10px; }
+        .app-container { width: 100%; max-width: 480px; height: 90vh; background: #fff; border-radius: 24px; display: flex; flex-direction: column; overflow: hidden; position: relative; border: 3px solid var(--p); }
+        .content-area { flex: 1; overflow-y: auto; padding: 20px; padding-bottom: 90px; }
+        .page { display: none; animation: f 0.3s; }
+        .page.active { display: block; }
+        @keyframes f { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        h2 { color: var(--d); margin-bottom: 20px; text-align: center; }
+        .nav-bar { position: absolute; bottom: 0; width: 100%; height: 70px; background: #fff; border-top: 2px solid var(--l); display: flex; z-index: 10; }
+        .nav-btn { flex: 1; border: none; background: none; color: #888; font-size: 0.8rem; font-weight: bold; cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; }
+        .nav-btn.active { color: var(--p); background: var(--l); }
+        .nav-icon { width: 24px; height: 24px; position: relative; }
+        .icon-select::before { content: ''; position: absolute; width: 14px; height: 14px; border: 3px solid currentColor; border-radius: 4px; top: 3px; left: 5px; }
+        .icon-chart::before { content: ''; position: absolute; width: 16px; height: 16px; border: 3px solid currentColor; border-radius: 50%; left: 4px; top: 4px; }
+        .icon-status::before { content: ''; position: absolute; width: 12px; height: 12px; border: 3px solid currentColor; border-radius: 50%; top: 2px; left: 6px; }
+        .icon-status::after { content: ''; position: absolute; width: 18px; height: 6px; border: 3px solid currentColor; border-top: none; border-radius: 0 0 10px 10px; bottom: 2px; left: 3px; }
+        .eco-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .eco-btn { background: var(--l); border: 2px solid var(--a); border-radius: 16px; padding: 16px; font-size: 1rem; font-weight: bold; color: var(--d); cursor: pointer; text-align: center; }
+        .eco-btn:active { transform: scale(0.95); background: var(--a); color: #fff; }
+        .eco-btn.btn-add { background: #fff3e0; border-color: #ffb74d; color: #e65100; }
+        .toast { position: absolute; top: 20px; left: 50%; transform: translateX(-50%) translateY(-50px); background: var(--p); color: #fff; padding: 12px 24px; border-radius: 50px; font-weight: bold; opacity: 0; transition: 0.3s; z-index: 200; pointer-events: none; }
+        .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .modal { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); justify-content: center; align-items: center; z-index: 100; padding: 20px; border-radius: 24px; }
+        .modal-content { background: #fff; padding: 24px; border-radius: 20px; width: 100%; max-width: 320px; text-align: center; border: 3px solid var(--p); animation: pop 0.3s; }
+        @keyframes pop { from { transform: scale(0.8); } to { transform: scale(1); } }
+        .modal input { width: 100%; padding: 10px; margin-bottom: 15px; border: 2px solid var(--a); border-radius: 10px; font-size: 1rem; }
+        .modal-btns { display: flex; gap: 10px; }
+        .modal-btns button { flex: 1; padding: 10px; border: none; border-radius: 10px; font-weight: bold; cursor: pointer; }
+        .btn-confirm { background: var(--p); color: #fff; }
+        .btn-cancel { background: #e0e0e0; color: #333; }
+        .chart-container { position: relative; margin: auto; height: 280px; width: 280px; }
+        .status-card { background: linear-gradient(135deg, #fff, var(--l)); border-radius: 20px; padding: 24px; text-align: center; border: 2px solid var(--a); position: relative; overflow: hidden; }
+        .rank-title { font-size: 1.8rem; font-weight: bold; color: var(--d); margin-bottom: 5px; }
+        .counter-text { font-size: 1.2rem; color: #555; margin-bottom: 25px; }
+        .illustration-box { width: 140px; height: 140px; margin: 0 auto 30px; position: relative; z-index: 2; }
+        .art-certificate { width: 100px; height: 130px; background: #fffde7; margin: auto; border: 6px double #fbc02d; border-radius: 8px; position: relative; }
+        .art-certificate::before { content: '賞状'; position: absolute; top: 15px; left: 0; width: 100%; text-align: center; font-size: 14px; font-weight: bold; color: #f57f17; }
+        .art-certificate::after { content: ''; position: absolute; bottom: 20px; left: 15px; width: 60px; height: 40px; border-top: 3px dashed #f57f17; border-bottom: 3px dashed #f57f17; }
+        .art-medal { width: 80px; height: 80px; background: #eceff1; border-radius: 50%; margin: 30px auto 0; border: 8px solid #b0bec5; position: relative; }
+        .art-medal::before { content: ''; position: absolute; top: -38px; left: 16px; width: 32px; height: 40px; background: linear-gradient(90deg, #e53935 50%, #1e88e5 50%); border-radius: 4px; z-index: -1; }
+        .art-medal::after { content: '1st'; position: absolute; width: 100%; text-align: center; top: 16px; left: 0; font-size: 20px; font-weight: bold; color: #78909c; }
+        .art-trophy { width: 70px; height: 70px; background: #ffd54f; margin: 20px auto 0; border-radius: 0 0 35px 35px; border: 4px solid #ffb300; position: relative; }
+        .art-trophy::before { content: ''; position: absolute; width: 16px; height: 30px; background: #ffb300; top: 66px; left: 23px; }
+        .art-trophy::after { content: ''; position: absolute; width: 50px; height: 16px; background: #cfd8dc; top: 92px; left: 6px; border-radius: 4px; }
+        .t-handle-l, .t-handle-r { position: absolute; width: 20px; height: 40px; border: 5px solid #ffd54f; border-radius: 50%; top: 5px; }
+        .t-handle-l { left: -16px; } .t-handle-r { right: -16px; }
+        .bg-applause { position: absolute; bottom: 0; left: 0; width: 100%; height: 80px; display: flex; justify-content: space-around; pointer-events: none; z-index: 1; opacity: 0.25; }
+        .stick-man { width: 40px; height: 70px; position: relative; }
+        .stick-man::before { content: ''; position: absolute; width: 14px; height: 14px; background: #333; border-radius: 50%; top: 5px; left: 13px; }
+        .sm-body { position: absolute; width: 3px; height: 25px; background: #333; top: 19px; left: 18px; }
+        .sm-body::before { content: ''; position: absolute; width: 10px; height: 20px; border-left: 3px solid #333; transform: rotate(15deg); top: 24px; left: -4px; }
+        .sm-body::after { content: ''; position: absolute; width: 10px; height: 20px; border-right: 3px solid #333; transform: rotate(-15deg); top: 24px; left: 3px; }
+        .sm-arm-l, .sm-arm-r { position: absolute; width: 15px; height: 3px; background: #333; top: 22px; transform-origin: 0% 50%; animation: clap 0.2s infinite alternate; }
+        .sm-arm-l { left: 20px; transform: rotate(-40deg); } .sm-arm-r { right: 20px; transform: rotate(-140deg); }
+        @keyframes clap { 0% { transform: rotate(-30deg); } 100% { transform: rotate(-70deg); } }
+        .rank-beginner .art-medal, .rank-beginner .art-trophy { display: none; }
+        .rank-rookie .art-certificate, .rank-rookie .art-trophy { display: none; }
+        .rank-expert .art-certificate, .rank-expert .art-medal { display: none; }
+    </style>
+</head>
+<body>
+<div id="toast" class="toast"></div>
+<div class="app-container">
+    <div class="content-area">
+        <div id="page-select" class="page active">
+            <h2>エコ行動を記録</h2>
+            <div id="eco-grid" class="eco-grid"></div>
+        </div>
+        <div id="page-chart" class="page">
+            <h2>みんなの記録グラフ</h2>
+            <div class="chart-container"><canvas id="ecoChart"></canvas></div>
+        </div>
+        <div id="page-status" class="page">
+            <h2>現在のランク</h2>
+            <div id="status-card" class="status-card rank-beginner">
+                <div id="rank-title" class="rank-title">エコ見習い 🌱</div>
+                <div id="counter-text" class="counter-text">合計回数: 0回</div>
+                <div class="illustration-box">
+                    <div class="art-certificate"></div>
+                    <div class="art-medal"></div>
+                    <div class="art-trophy"><div class="t-handle-l"></div><div class="t-handle-r"></div></div>
+                </div>
+                <div class="bg-applause">
+                    <div class="stick-man"><div class="sm-body"></div><div class="sm-arm-l"></div><div class="sm-arm-r"></div></div>
+                    <div class="stick-man"><div class="sm-body"></div><div class="sm-arm-l"></div><div class="sm-arm-r"></div></div>
+                    <div class="stick-man"><div class="sm-body"></div><div class="sm-arm-l"></div><div class="sm-arm-r"></div></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <nav class="nav-bar">
+        <button class="nav-btn active" onclick="switchPage('select')"><div class="nav-icon icon-select"></div>選択ページ</button>
+        <button class="nav-btn" onclick="switchPage('chart')"><div class="nav-icon icon-chart"></div>グラフページ</button>
+        <button class="nav-btn" onclick="switchPage('status')"><div class="nav-icon icon-status"></div>自分の状態</button>
+    </nav>
+</div>
+
+<!-- モーダル定義 -->
+<div id="add-modal" class="modal">
+    <div class="modal-content">
+        <h3>新しいエコ行動を追加</h3>
+        <input type="text" id="new-eco-input" placeholder="例: ゴミ拾い" maxlength="15">
+        <div class="modal-btns">
+            <button class="btn-cancel" onclick="closeAddModal()">キャンセル</button>
+            <button class="btn-confirm" onclick="confirmAddEco()">追加</button>
+        </div>
+    </div>
+</div>
+
+<div id="celebrate-modal" class="modal">
+    <div class="modal-content">
+        <h3 id="celebrate-msg">🎉 ランクアップ！ 🎉</h3>
+        <div class="modal-btns">
+            <button class="btn-confirm" onclick="closeCelebrateModal()">ありがとう！</button>
+        </div>
+    </div>
+</div>
+
+<script>
+let ecoItems = ["マイ箸", "マイボトル", "徒歩", "自転車", "エコマーク", "フリーマーケット", "譲りもの", "リサイクル", "水まき"];
+let ecoLogs = JSON.parse(localStorage.getItem('ecoLogs')) || {};
+let customItems = JSON.parse(localStorage.getItem('customItems')) || [];
+ecoItems = [...ecoItems, ...customItems];
+ecoItems.forEach(item => { if(ecoLogs[item] === undefined) ecoLogs[item] = 0; });
+let chartInstance = null;
+
+document.addEventListener("DOMContentLoaded", () => { 
+    renderEcoButtons(); 
+    updateStatusPage(); 
+    initChart(); 
+});
+
+function switchPage(pId) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`page-${pId}`).classList.add('active');
+    const idx = pId === 'select' ? 0 : pId === 'chart' ? 1 : 2;
+    document.querySelectorAll('.nav-btn')[idx].classList.add('active');
+    if(pId === 'chart') updateChart();
+}
+
+function renderEcoButtons() {
+    const grid = document.getElementById("eco-grid"); 
+    if(!grid) return; 
+    grid.innerHTML = "";
+    ecoItems.forEach(item => {
+        const btn = document.createElement("button"); 
+        btn.className = "eco-btn"; 
+        btn.textContent = item;
+        btn.onclick = () => logEcoAction(item); 
+        grid.appendChild(btn);
+    });
+    const addBtn = document.createElement("button"); 
+    addBtn.className = "eco-btn btn-add"; 
+    addBtn.textContent = "＋ 追加";
+    addBtn.onclick = openAddModal; 
+    grid.appendChild(addBtn);
+}
+
+function logEcoAction(item) {
+    ecoLogs[item] = (ecoLogs[item] || 0) + 1; 
+    localStorage.setItem('ecoLogs', JSON.stringify(ecoLogs));
+    showToast(`${item} ${ecoLogs[item]}回目🎉`);
+    const total = Object.values(ecoLogs).reduce((a, b) => a + b, 0);
+    if (total === 50) triggerCelebration("50回目おめでとう！\n【ビギナー📜】になりました！");
+    if (total === 100) triggerCelebration("100回目おめでとう！\n【ルーキー🏅】になりました！");
+    if (total === 150) triggerCelebration("150回目おめでとう！\n【エキスパート🏆】になりました！");
+    updateStatusPage();
+}
+
+function showToast(msg) {
+    const t = document.getElementById("toast"); 
+    if(!t) return;
+    t.textContent = msg; 
+    t.classList.add("show"); 
+    setTimeout(() => t.classList.remove("show"), 2000);
+}
+
+function triggerCelebration(msg) {
+    const m = document.getElementById("celebrate-modal"), t = document.getElementById("celebrate-msg");
+    if(m && t) { t.innerText = msg; m.style.display = "flex"; }
+}
+
+function closeCelebrateModal() { 
+    document.getElementById("celebrate-modal").style.display = "none"; 
+}
+
+function openAddModal() { 
+    document.getElementById("add-modal").style.display = "flex"; 
+}
+
+function closeAddModal() { 
+    document.getElementById("add-modal").style.display = "none"; 
+    document.getElementById("new-eco-input").value = ""; 
+}
+
+function confirmAddEco() {
+    const input = document.getElementById("new-eco-input"); 
+    if(!input) return;
+    const val = input.value.trim(); 
+    if(!val) return;
+    if(ecoItems.includes(val)) { alert("その項目はすでにあります。"); return; }
+    ecoItems.push(val); 
+    customItems.push(val); 
+    ecoLogs[val] = 0;
+    localStorage.setItem('customItems', JSON.stringify(customItems)); 
+    localStorage.setItem('ecoLogs', JSON.stringify(ecoLogs));
+    renderEcoButtons(); 
+    closeAddModal(); 
+    showToast(`「${val}」を追加しました！`);
+}
+
+function updateStatusPage() {
+    const total = Object.values(ecoLogs).reduce((a, b) => a + b, 0);
+    const card = document.getElementById("status-card"), title = document.getElementById("rank-title"), counter = document.getElementById("counter-text");
+    if(!card || !title || !counter) return;
+    counter.textContent = `合計回数: ${total}回`; 
+    card.className = "status-card";
+    if (total >= 150) { card.classList.add("rank-expert"); title.innerHTML = "エキスパート 🏆"; }
+    else if (total >= 100) { card.classList.add("rank-rookie"); title.innerHTML = "ルーキー 🏅"; }
+    else if (total >= 50) { card.classList.add("rank-beginner"); title.innerHTML = "ビギナー 📜"; }
+    else { card.classList.add("rank-beginner"); title.innerHTML = "エコ見習い 🌱"; }
+}
+
+function initChart() {
+    const canvas = document.getElementById('ecoChart'); 
+    if(!canvas) return;
+    chartInstance = new Chart(canvas.getContext('2d'), {
+        type: 'doughnut',
+        data: {
+            labels: ecoItems,
+            datasets: [{
+                data: ecoItems.map(item => ecoLogs[item] || 0),
+                backgroundColor: ['#2e7d32', '#4caf50', '#81c784', '#a5d6a7', '#c8e6c9', '#1b5e20', '#388e3c', '#66bb6a', '#43a047', '#7cb342', '#ffb74d', '#ffa726', '#ff9800'],
+                borderWidth: 2, 
+                borderColor: '#ffffff'
+            }]
+        },
+        options: { 
+            responsive: true, 
+            maintainAspectRatio: false, 
+            plugins: { 
+                legend: { 
+                    position: 'bottom', 
+                    labels: { boxWidth: 12, font: { size: 11 } } 
+                } 
+            } 
+        }
+    });
+}
+
+function updateChart() { 
+    if(chartInstance) { 
+        chartInstance.data.labels = ecoItems; 
+        chartInstance.data.datasets[0].data = ecoItems.map(item => ecoLogs[item] || 0); 
+        chartInstance.update(); 
+    } 
+}
+</script>
+</body>
+</html>
